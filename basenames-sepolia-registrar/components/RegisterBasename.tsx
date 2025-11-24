@@ -4,22 +4,17 @@ import { useState, useEffect } from 'react'
 import { useWallet } from '@/lib/useWallet'
 import { normalize } from 'viem/ens'
 import { namehash, keccak256, encodePacked, toBytes, encodeFunctionData } from 'viem'
+import { STANDARD_ENS_KEYS, getRecordsByCategory, getRecordLabel, validateRecord, validateRecords } from '@/lib/validate-records'
+import type { VerificationResult } from '@/lib/verify-basename-records'
+import { verifyBasenameRecords } from '@/lib/verify-basename-records'
+import { VerificationSummary } from '@/components/VerificationSummary'
 
-const getRegistrarController = (): `0x${string}` => {
-  const addr = process.env.NEXT_PUBLIC_BASENAMES_REGISTRAR_CONTROLLER_BASE_SEPOLIA as `0x${string}`
-  if (!addr) {
-    throw new Error('NEXT_PUBLIC_BASENAMES_REGISTRAR_CONTROLLER_BASE_SEPOLIA is not set. Please set BASENAMES_REGISTRAR_CONTROLLER_BASE_SEPOLIA in parent .env.local')
-  }
-  return addr
-}
+// Base Sepolia contract addresses (hardcoded)
+const REGISTRAR_CONTROLLER = '0x49ae3cc2e3aa768b1e5654f5d3c6002144a59581' as `0x${string}`
+const RESOLVER = '0x85C87e548091f204C2d0350b39ce1874f02197c6' as `0x${string}`
 
-const getResolver = (): `0x${string}` => {
-  const addr = process.env.NEXT_PUBLIC_BASENAMES_RESOLVER_BASE_SEPOLIA as `0x${string}`
-  if (!addr) {
-    throw new Error('NEXT_PUBLIC_BASENAMES_RESOLVER_BASE_SEPOLIA is not set. Please set BASENAMES_RESOLVER_BASE_SEPOLIA in parent .env.local')
-  }
-  return addr
-}
+const getRegistrarController = (): `0x${string}` => REGISTRAR_CONTROLLER
+const getResolver = (): `0x${string}` => RESOLVER
 
 const PARENT_DOMAIN = 'basetest.eth'
 const PARENT_NODE = namehash(PARENT_DOMAIN) as `0x${string}`
@@ -95,10 +90,14 @@ function calculateSubnameNode(label: string, rootNode: `0x${string}`): `0x${stri
 
 export function RegisterBasename() {
   const { address, isConnected, publicClient, getWalletClient } = useWallet()
+  
+  // Basic fields
   const [name, setName] = useState('')
   const [addressToSet, setAddressToSet] = useState('')
   const [description, setDescription] = useState('')
   const [price, setPrice] = useState<bigint | null>(null)
+  
+  // Registration state
   const [isRegistering, setIsRegistering] = useState(false)
   const [isSettingRecords, setIsSettingRecords] = useState(false)
   const [isWaitingRegister, setIsWaitingRegister] = useState(false)
@@ -107,6 +106,89 @@ export function RegisterBasename() {
   const [recordsTxHash, setRecordsTxHash] = useState<`0x${string}` | null>(null)
   const [isRegisterSuccess, setIsRegisterSuccess] = useState(false)
   const [isRecordsSuccess, setIsRecordsSuccess] = useState(false)
+  
+  // Additional records state - all standard ENS keys except 'addr' (handled separately) and 'description' (existing field)
+  // addr is handled as addressToSet, description is separate field
+  const additionalRecordKeys = STANDARD_ENS_KEYS.filter(key => key !== 'addr' && key !== 'description')
+  
+  const [additionalRecords, setAdditionalRecords] = useState<Record<string, string>>({})
+  
+  // Validation state
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
+  
+  // Verification state
+  const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null)
+  const [isVerifying, setIsVerifying] = useState(false)
+  
+  // UI state for expandable categories
+  const [showAdditionalRecords, setShowAdditionalRecords] = useState(false)
+  const [expandedCategories, setExpandedCategories] = useState<string[]>([])
+
+  // Get records organized by category
+  const recordsByCategory = getRecordsByCategory()
+
+  // Helper function to toggle category expansion
+  const toggleCategory = (category: string) => {
+    setExpandedCategories(prev =>
+      prev.includes(category)
+        ? prev.filter(c => c !== category)
+        : [...prev, category]
+    )
+  }
+
+  // Helper function to update additional records with validation
+  const updateAdditionalRecord = (key: string, value: string) => {
+    // Update the value
+    setAdditionalRecords(prev => ({
+      ...prev,
+      [key]: value,
+    }))
+    
+    // Validate on change
+    const validation = validateRecord(key, value)
+    setValidationErrors(prev => {
+      const updated = { ...prev }
+      if (validation.valid) {
+        delete updated[key]
+      } else {
+        updated[key] = validation.error || 'Invalid value'
+      }
+      return updated
+    })
+  }
+
+  // Validate address field
+  const validateAddress = (addr: string) => {
+    const validation = validateRecord('addr', addr)
+    setValidationErrors(prev => {
+      const updated = { ...prev }
+      if (validation.valid) {
+        delete updated['addr']
+      } else {
+        updated['addr'] = validation.error || 'Invalid Ethereum address'
+      }
+      return updated
+    })
+  }
+
+  // Helper function to get all records (including description and addr)
+  const getAllRecords = (): Record<string, string> => {
+    const all: Record<string, string> = {}
+    
+    // Add description if provided
+    if (description.trim()) {
+      all['description'] = description.trim()
+    }
+    
+    // Add all additional records that have values
+    Object.entries(additionalRecords).forEach(([key, value]) => {
+      if (value.trim()) {
+        all[key] = value.trim()
+      }
+    })
+    
+    return all
+  }
 
   const normalizedName = name ? normalize(name) : ''
   const fullName = normalizedName ? `${normalizedName}.${PARENT_DOMAIN}` : ''
@@ -233,6 +315,7 @@ export function RegisterBasename() {
       const subnameNode = calculateSubnameNode(normalizedName, PARENT_NODE)
       const resolverData: `0x${string}`[] = []
 
+      // Step 1: Set address record (required)
       resolverData.push(
         encodeFunctionData({
           abi: RESOLVER_ABI,
@@ -241,14 +324,20 @@ export function RegisterBasename() {
         })
       )
 
-      if (description) {
-        resolverData.push(
-          encodeFunctionData({
-            abi: RESOLVER_ABI,
-            functionName: 'setText',
-            args: [subnameNode, 'description', description],
-          })
-        )
+      // Step 2: Get all text records (description + additional records)
+      const allTextRecords = getAllRecords()
+      
+      // Step 3: Add all text records to multicall
+      for (const [key, value] of Object.entries(allTextRecords)) {
+        if (value && value.trim() !== '') {
+          resolverData.push(
+            encodeFunctionData({
+              abi: RESOLVER_ABI,
+              functionName: 'setText',
+              args: [subnameNode, key, value],
+            })
+          )
+        }
       }
 
       // Get account from wallet client
@@ -257,6 +346,13 @@ export function RegisterBasename() {
         throw new Error('No accounts found in wallet')
       }
       const account = accounts[0]
+
+      // Only send transaction if there are records to set
+      if (resolverData.length === 0) {
+        setIsSettingRecords(false)
+        setIsRecordsSuccess(true)
+        return
+      }
 
       const hash = await walletClient.writeContract({
         account,
@@ -275,11 +371,35 @@ export function RegisterBasename() {
       
       setIsWaitingRecords(false)
       setIsRecordsSuccess(true)
+
+      // Auto-verify after all records are set
+      if (fullName) {
+        await runVerification(fullName)
+      }
     } catch (err: any) {
       console.error('Error setting records:', err)
       alert(err.message || 'Failed to set resolver records')
       setIsSettingRecords(false)
       setIsWaitingRecords(false)
+    }
+  }
+
+  // Run verification after all records are set
+  const runVerification = async (basenameToVerify: string) => {
+    setIsVerifying(true)
+    setVerificationResult(null)
+
+    try {
+      // Wait a moment for the transaction to be fully indexed
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      const result = await verifyBasenameRecords(basenameToVerify)
+      setVerificationResult(result)
+    } catch (err: any) {
+      console.error('Error verifying records:', err)
+      // Don't show alert - verification failure is not critical
+    } finally {
+      setIsVerifying(false)
     }
   }
 
@@ -319,7 +439,10 @@ export function RegisterBasename() {
           <input
             type="text"
             value={addressToSet}
-            onChange={(e) => setAddressToSet(e.target.value)}
+            onChange={(e) => {
+              setAddressToSet(e.target.value)
+              validateAddress(e.target.value)
+            }}
             placeholder="0x..."
             className="w-full px-4 py-2 border rounded-lg"
             disabled={isRegistering || isSettingRecords || isWaitingRegister || isWaitingRecords}
@@ -343,9 +466,208 @@ export function RegisterBasename() {
           />
         </div>
 
+        {/* Additional Records Section */}
+        <div className="border rounded-lg p-4 bg-gray-50">
+          <button
+            type="button"
+            onClick={() => setShowAdditionalRecords(!showAdditionalRecords)}
+            className="flex items-center justify-between w-full text-left font-semibold mb-2"
+          >
+            <span>Additional Records (optional)</span>
+            <span>{showAdditionalRecords ? '▼' : '▶'}</span>
+          </button>
+
+          {showAdditionalRecords && (
+            <div className="space-y-4 mt-4">
+              {/* Profile Category */}
+              <div className="border rounded p-3 bg-white">
+                <button
+                  type="button"
+                  onClick={() => toggleCategory('profile')}
+                  className="flex items-center justify-between w-full text-left font-medium mb-2"
+                >
+                  <span>Profile</span>
+                  <span>{expandedCategories.includes('profile') ? '▼' : '▶'}</span>
+                </button>
+                {expandedCategories.includes('profile') && (
+                  <div className="space-y-3 mt-3">
+                    {recordsByCategory.profile.map((key) => (
+                      <div key={key}>
+                        <label className="block text-sm font-medium mb-1">
+                          {getRecordLabel(key)}
+                          {key === 'avatar' || key === 'url' ? ' (URL)' : ''}
+                        </label>
+                        {key === 'keywords' ? (
+                          <textarea
+                            value={additionalRecords[key] || ''}
+                            onChange={(e) => updateAdditionalRecord(key, e.target.value)}
+                            placeholder={
+                              key === 'keywords'
+                                ? 'Comma-separated keywords'
+                                : getRecordLabel(key)
+                            }
+                            className="w-full px-4 py-2 border rounded-lg"
+                            rows={2}
+                            disabled={isRegistering || isSettingRecords || isWaitingRegister || isWaitingRecords}
+                          />
+                        ) : (
+                          <input
+                            type={key === 'email' ? 'email' : key === 'url' || key === 'avatar' ? 'url' : 'text'}
+                            value={additionalRecords[key] || ''}
+                            onChange={(e) => updateAdditionalRecord(key, e.target.value)}
+                            placeholder={getRecordLabel(key)}
+                            className="w-full px-4 py-2 border rounded-lg"
+                            disabled={isRegistering || isSettingRecords || isWaitingRegister || isWaitingRecords}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Contact Category */}
+              <div className="border rounded p-3 bg-white">
+                <button
+                  type="button"
+                  onClick={() => toggleCategory('contact')}
+                  className="flex items-center justify-between w-full text-left font-medium mb-2"
+                >
+                  <span>Contact</span>
+                  <span>{expandedCategories.includes('contact') ? '▼' : '▶'}</span>
+                </button>
+                {expandedCategories.includes('contact') && (
+                  <div className="space-y-3 mt-3">
+                    {recordsByCategory.contact.map((key) => (
+                      <div key={key}>
+                        <label className="block text-sm font-medium mb-1">
+                          {getRecordLabel(key)}
+                          {key === 'phone' ? ' (E.164 format, e.g., +1234567890)' : ''}
+                          {key === 'email' ? ' (email address)' : ''}
+                        </label>
+                        <input
+                          type={key === 'email' ? 'email' : key === 'phone' ? 'tel' : 'text'}
+                          value={additionalRecords[key] || ''}
+                          onChange={(e) => updateAdditionalRecord(key, e.target.value)}
+                          placeholder={
+                            key === 'phone'
+                              ? '+1234567890'
+                              : key === 'location'
+                              ? 'e.g., Toronto, Canada'
+                              : getRecordLabel(key)
+                          }
+                          className="w-full px-4 py-2 border rounded-lg"
+                          disabled={isRegistering || isSettingRecords || isWaitingRegister || isWaitingRecords}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Social Category */}
+              <div className="border rounded p-3 bg-white">
+                <button
+                  type="button"
+                  onClick={() => toggleCategory('social')}
+                  className="flex items-center justify-between w-full text-left font-medium mb-2"
+                >
+                  <span>Social</span>
+                  <span>{expandedCategories.includes('social') ? '▼' : '▶'}</span>
+                </button>
+                {expandedCategories.includes('social') && (
+                  <div className="space-y-3 mt-3">
+                    {recordsByCategory.social.map((key) => (
+                      <div key={key}>
+                        <label className="block text-sm font-medium mb-1">
+                          {getRecordLabel(key)}
+                          {key === 'com.twitter' || key === 'org.telegram' || key === 'com.github'
+                            ? ' (username only, no @)'
+                            : ''}
+                        </label>
+                        <input
+                          type="text"
+                          value={additionalRecords[key] || ''}
+                          onChange={(e) => updateAdditionalRecord(key, e.target.value)}
+                          placeholder={
+                            key === 'com.twitter' || key === 'org.telegram'
+                              ? 'username'
+                              : key === 'com.linkedin'
+                              ? 'LinkedIn URL or username'
+                              : getRecordLabel(key)
+                          }
+                          className="w-full px-4 py-2 border rounded-lg"
+                          disabled={isRegistering || isSettingRecords || isWaitingRegister || isWaitingRecords}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Other Category */}
+              <div className="border rounded p-3 bg-white">
+                <button
+                  type="button"
+                  onClick={() => toggleCategory('other')}
+                  className="flex items-center justify-between w-full text-left font-medium mb-2"
+                >
+                  <span>Other</span>
+                  <span>{expandedCategories.includes('other') ? '▼' : '▶'}</span>
+                </button>
+                {expandedCategories.includes('other') && (
+                  <div className="space-y-3 mt-3">
+                    {recordsByCategory.other.map((key) => (
+                      <div key={key}>
+                        <label className="block text-sm font-medium mb-1">
+                          {getRecordLabel(key)}
+                          {key === 'url' ? ' (URL)' : ''}
+                        </label>
+                        {key === 'notice' || key === 'mail' ? (
+                          <textarea
+                            value={additionalRecords[key] || ''}
+                            onChange={(e) => updateAdditionalRecord(key, e.target.value)}
+                            placeholder={getRecordLabel(key)}
+                            className="w-full px-4 py-2 border rounded-lg"
+                            rows={2}
+                            disabled={isRegistering || isSettingRecords || isWaitingRegister || isWaitingRecords}
+                          />
+                        ) : (
+                          <input
+                            type={key === 'url' ? 'url' : 'text'}
+                            value={additionalRecords[key] || ''}
+                            onChange={(e) => updateAdditionalRecord(key, e.target.value)}
+                            placeholder={getRecordLabel(key)}
+                            className="w-full px-4 py-2 border rounded-lg"
+                            disabled={isRegistering || isSettingRecords || isWaitingRegister || isWaitingRecords}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         {price === null && normalizedName && (
           <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
             ⚠️ Unable to fetch registration price. You can still attempt registration, but the transaction may fail if insufficient funds are sent.
+          </div>
+        )}
+
+        {/* Validation Summary */}
+        {Object.keys(validationErrors).length > 0 && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+            <div className="font-semibold mb-2">❌ Validation Errors:</div>
+            <ul className="list-disc list-inside space-y-1 text-sm">
+              {Object.entries(validationErrors).map(([key, error]) => (
+                <li key={key}>
+                  <span className="font-medium">{getRecordLabel(key)}:</span> {error}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
@@ -358,7 +680,8 @@ export function RegisterBasename() {
             isWaitingRecords ||
             !isConnected ||
             !name ||
-            !addressToSet
+            !addressToSet ||
+            Object.keys(validationErrors).length > 0
           }
           className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -391,6 +714,18 @@ export function RegisterBasename() {
           <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">
             ✅ Success! Basename registered and records set.
           </div>
+        )}
+
+        {/* Verification Status */}
+        {isVerifying && (
+          <div className="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded">
+            🔍 Verifying records...
+          </div>
+        )}
+
+        {/* Verification Summary */}
+        {verificationResult && !isVerifying && (
+          <VerificationSummary result={verificationResult} showAllRecords={true} />
         )}
       </div>
     </div>

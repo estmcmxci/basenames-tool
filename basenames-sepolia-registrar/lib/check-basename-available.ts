@@ -6,13 +6,10 @@ import { createPublicClient, http } from 'viem'
 import { baseSepolia } from 'viem/chains'
 import { normalize } from 'viem/ens'
 
-const getRegistrarController = (): `0x${string}` => {
-  const addr = process.env.NEXT_PUBLIC_BASENAMES_REGISTRAR_CONTROLLER_BASE_SEPOLIA as `0x${string}`
-  if (!addr) {
-    throw new Error('NEXT_PUBLIC_BASENAMES_REGISTRAR_CONTROLLER_BASE_SEPOLIA is not set. Please set BASENAMES_REGISTRAR_CONTROLLER_BASE_SEPOLIA in parent .env.local')
-  }
-  return addr
-}
+// Base Sepolia contract addresses (hardcoded)
+const REGISTRAR_CONTROLLER = '0x49ae3cc2e3aa768b1e5654f5d3c6002144a59581' as `0x${string}`
+
+const getRegistrarController = (): `0x${string}` => REGISTRAR_CONTROLLER
 
 // Use Base official public RPC endpoint for Base Sepolia
 const BASE_SEPOLIA_RPC = 'https://sepolia.base.org'

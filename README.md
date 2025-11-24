@@ -18,8 +18,13 @@ basenames-tool/
 
 A Next.js frontend application for registering and querying basenames. Fully static and IPFS-ready.
 
-- **Features:** Register basenames, query existing records, check availability
-- **Deployed:** https://v11.oakgroup.eth.link/
+- **Features:** 
+  - Register basenames with all 17 ENSIP-5 standard records
+  - Query basenames with comprehensive verification
+  - Check availability before registering
+  - Real-time validation for all record types
+  - Automatic verification after registration
+- **Deployed:** https://v12.oakgroup.eth.limo/
 - **Tech Stack:** Next.js 14, React, viem, Tailwind CSS
 - **See:** [basenames-sepolia-registrar/README.md](./basenames-sepolia-registrar/README.md) for detailed documentation
 
@@ -30,6 +35,7 @@ TypeScript scripts for programmatic basename operations:
 - `register-basename.ts` - Register basenames with address and text records
 - `query-basenames.ts` - Query basename records
 - `check-basename-available.ts` - Check if a basename is available
+- `verify-basename-records.ts` - Verify all ENSIP-5 standard records on-chain
 
 **Usage:** These scripts require a `.env.local` file with configuration (see below).
 
@@ -77,11 +83,23 @@ CURATOR_PRIVATE_KEY=0x...
 - Resolver: `0x6533C94869D28fAA8dF77cc63f9e2b2D6Cf77eBA`
 - ReverseRegistrar: `0x876eF94ce0773052a2f81921E70FF25a5e76841f`
 
+## What's New in v12
+
+- ✨ **Full ENSIP-5 Support**: All 17 standard records can be registered and queried
+- ✅ **Enhanced Verification**: Complete verification system showing all records with status
+- 🔒 **Deployment Security**: Multiple safeguards to prevent exposing sensitive config files
+- 📝 **Real-time Validation**: Validate all record types as you type
+- 🎯 **Hardcoded Addresses**: Contract addresses hardcoded - easier setup
+
+See [CHANGELOG.md](./CHANGELOG.md) for complete details.
+
 ## Security Notes
 
 - All sensitive configuration uses environment variables
 - `.gitignore` excludes sensitive files, build artifacts, and dependencies
 - Never commit private keys, API keys, or `.env.local` files
+- Deployment scripts protect sensitive files from IPFS upload
+- See [basenames-sepolia-registrar/DEPLOYMENT_SECURITY.md](./basenames-sepolia-registrar/DEPLOYMENT_SECURITY.md) for deployment security guide
 
 ## Development
 
@@ -102,9 +120,6 @@ The static files will be in the `out/` directory, ready for IPFS deployment.
 
 ## License
 
-[Add your license here]
+MIT License
 
-## Contributing
-
-[Add contribution guidelines if needed]
 

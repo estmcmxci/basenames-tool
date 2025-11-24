@@ -28,6 +28,9 @@ build/
 **/secure-deploy.config.json
 **/out/**/*.config.json
 
+# External repositories
+basenames-repo/
+
 # Note: *.config.json is too broad - Next.js uses next.config.js which should be committed
 # Only exclude config files in build outputs
 

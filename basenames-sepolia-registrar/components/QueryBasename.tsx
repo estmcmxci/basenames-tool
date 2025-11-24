@@ -1,12 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { queryBasename } from '@/lib/query-basenames'
+import { verifyBasenameRecords } from '@/lib/verify-basename-records'
+import type { VerificationResult } from '@/lib/verify-basename-records'
+import { VerificationSummary } from '@/components/VerificationSummary'
 
 export function QueryBasename() {
   const [basename, setBasename] = useState('')
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [result, setResult] = useState<VerificationResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const handleQuery = async () => {
@@ -20,7 +22,7 @@ export function QueryBasename() {
     setResult(null)
 
     try {
-      const data = await queryBasename(basename)
+      const data = await verifyBasenameRecords(basename)
       setResult(data)
     } catch (err: any) {
       let errorMessage = err.message || 'Query failed'
@@ -73,42 +75,10 @@ export function QueryBasename() {
         )}
 
         {result && (
-          <div className="mt-6 space-y-4">
-            <h3 className="text-xl font-bold">Results</h3>
-            
-            <div className="bg-gray-100 p-4 rounded-lg space-y-2">
-              <div>
-                <span className="font-medium">Basename:</span> {result.basename}
-              </div>
-              <div>
-                <span className="font-medium">Owner:</span> {result.owner || 'Not set'}
-              </div>
-              <div>
-                <span className="font-medium">Resolver:</span> {result.resolver || 'Not set'}
-              </div>
-              <div>
-                <span className="font-medium">Address Record (Forward):</span>{' '}
-                {result.addressRecord || 'Not set'}
-              </div>
-              <div>
-                <span className="font-medium">Primary Name (Reverse):</span>{' '}
-                {result.primaryName || '❌ NOT SET'}
-              </div>
-              
-              {Object.keys(result.records || {}).length > 0 && (
-                <div className="mt-4">
-                  <span className="font-medium">Text Records:</span>
-                  <ul className="list-disc list-inside mt-2">
-                    {Object.entries(result.records).map(([key, value]) => (
-                      <li key={key}>
-                        <span className="font-medium">{key}</span>: {String(value || 'Not set')}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </div>
+          <VerificationSummary 
+            result={result} 
+            showAllRecords={true}
+          />
         )}
       </div>
     </div>

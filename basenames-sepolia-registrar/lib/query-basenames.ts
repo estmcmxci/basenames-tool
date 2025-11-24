@@ -7,29 +7,14 @@ import { baseSepolia } from 'viem/chains'
 import { normalize, namehash } from 'viem/ens'
 import { keccak256, encodePacked, toBytes } from 'viem'
 
-const getRegistry = (): `0x${string}` => {
-  const addr = process.env.NEXT_PUBLIC_BASENAMES_REGISTRY_BASE_SEPOLIA as `0x${string}`
-  if (!addr) {
-    throw new Error('NEXT_PUBLIC_BASENAMES_REGISTRY_BASE_SEPOLIA is not set. Please set BASENAMES_REGISTRY_BASE_SEPOLIA in parent .env.local')
-  }
-  return addr
-}
+// Base Sepolia contract addresses (hardcoded)
+const REGISTRY = '0x1493b2567056c2181630115660963E13A8E32735' as `0x${string}`
+const RESOLVER = '0x85C87e548091f204C2d0350b39ce1874f02197c6' as `0x${string}`
+const REVERSE_REGISTRAR = '0x876eF94ce0773052a2f81921E70FF25a5e76841f' as `0x${string}`
 
-const getResolver = (): `0x${string}` => {
-  const addr = process.env.NEXT_PUBLIC_BASENAMES_RESOLVER_BASE_SEPOLIA as `0x${string}`
-  if (!addr) {
-    throw new Error('NEXT_PUBLIC_BASENAMES_RESOLVER_BASE_SEPOLIA is not set. Please set BASENAMES_RESOLVER_BASE_SEPOLIA in parent .env.local')
-  }
-  return addr
-}
-
-const getReverseRegistrar = (): `0x${string}` => {
-  const addr = process.env.NEXT_PUBLIC_BASENAMES_REVERSE_REGISTRAR_BASE_SEPOLIA as `0x${string}`
-  if (!addr) {
-    throw new Error('NEXT_PUBLIC_BASENAMES_REVERSE_REGISTRAR_BASE_SEPOLIA is not set. Please set BASENAMES_REVERSE_REGISTRAR_BASE_SEPOLIA in parent .env.local')
-  }
-  return addr
-}
+const getRegistry = (): `0x${string}` => REGISTRY
+const getResolver = (): `0x${string}` => RESOLVER
+const getReverseRegistrar = (): `0x${string}` => REVERSE_REGISTRAR
 
 // Use Base official public RPC endpoint for Base Sepolia
 const BASE_SEPOLIA_RPC = 'https://sepolia.base.org'

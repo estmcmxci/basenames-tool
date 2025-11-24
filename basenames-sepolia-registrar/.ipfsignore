@@ -1,0 +1,13 @@
+# Files to exclude from IPFS deployment
+# This file tells IPFS tools to ignore these files/directories
+
+# Sensitive configuration files (NEVER deploy these!)
+secure-deploy.config.json
+*.config.json
+!next.config.js
+
+# Any other sensitive files
+*.key
+*.pem
+.env*
+
